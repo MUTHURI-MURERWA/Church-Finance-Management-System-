@@ -19,7 +19,8 @@ router.get('/', async (req, res) => {
           OR last_contribution_date < NOW() - INTERVAL '6 months'
         )
         AND manually_set_status = FALSE
-    `);
+        AND church_id = $1
+    `, [req.user.church_id]);
 
     const result = await pool.query(`
       SELECT
@@ -40,9 +41,10 @@ router.get('/', async (req, res) => {
       LEFT JOIN villages v ON v.id = m.village_id
       LEFT JOIN member_groups mg ON mg.member_id = m.id
       LEFT JOIN groups g ON g.id = mg.group_id
+      WHERE m.church_id = $1
       GROUP BY m.id, v.name
       ORDER BY m.member_id ASC
-    `);
+    `, [req.user.church_id]);
     res.json(result.rows);
   } catch (err) {
     console.error('Get members error:', err);
@@ -66,9 +68,9 @@ router.get('/:memberId', async (req, res) => {
       LEFT JOIN villages v ON v.id = m.village_id
       LEFT JOIN member_groups mg ON mg.member_id = m.id
       LEFT JOIN groups g ON g.id = mg.group_id
-      WHERE m.member_id = $1
+      WHERE m.member_id = $1 AND m.church_id = $2
       GROUP BY m.id, v.name
-    `, [req.params.memberId]);
+    `, [req.params.memberId, req.user.church_id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Member not found.' });
@@ -90,18 +92,18 @@ router.post('/', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Auto-generate member_id
-    const countRes = await client.query('SELECT COUNT(*) FROM members');
+    // Auto-generate member_id per church
+    const countRes = await client.query('SELECT COUNT(*) FROM members WHERE church_id = $1', [req.user.church_id]);
     const memberId = String(parseInt(countRes.rows[0].count) + 1).padStart(3, '0');
 
     // Resolve or create village
     let villageRes = await client.query(
-      'SELECT id FROM villages WHERE LOWER(name) = LOWER($1)', [village.trim()]
+      'SELECT id FROM villages WHERE LOWER(name) = LOWER($1) AND church_id = $2', [village.trim(), req.user.church_id]
     );
     let villageId;
     if (villageRes.rows.length === 0) {
       const ins = await client.query(
-        'INSERT INTO villages (name) VALUES ($1) RETURNING id', [village.trim()]
+        'INSERT INTO villages (name, church_id) VALUES ($1, $2) RETURNING id', [village.trim(), req.user.church_id]
       );
       villageId = ins.rows[0].id;
     } else {
@@ -110,16 +112,16 @@ router.post('/', async (req, res) => {
 
     // Insert member with active status
     const memberRes = await client.query(`
-      INSERT INTO members (member_id, full_name, phone, village_id, join_date, status, manually_set_status)
-      VALUES ($1, $2, $3, $4, CURRENT_DATE, 'active', FALSE) RETURNING *
-    `, [memberId, fullName.trim(), phone?.trim() || null, villageId]);
+      INSERT INTO members (member_id, full_name, phone, village_id, join_date, status, manually_set_status, church_id)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE, 'active', FALSE, $5) RETURNING *
+    `, [memberId, fullName.trim(), phone?.trim() || null, villageId, req.user.church_id]);
     const newMember = memberRes.rows[0];
 
     // Assign groups
     if (groups?.length > 0) {
       for (const groupName of groups) {
         const grpRes = await client.query(
-          'SELECT id FROM groups WHERE LOWER(name) = LOWER($1)', [groupName]
+          'SELECT id FROM groups WHERE LOWER(name) = LOWER($1) AND church_id = $2', [groupName, req.user.church_id]
         );
         if (grpRes.rows.length > 0) {
           await client.query(
@@ -142,8 +144,6 @@ router.post('/', async (req, res) => {
 });
 
 // ── PATCH /api/members/:memberId/status ──────────────────
-// Finance secretary manually sets active/inactive/dormant
-// Body: { status: 'active' | 'inactive' | 'dormant' }
 router.patch('/:memberId/status', async (req, res) => {
   const { status } = req.body;
   const VALID = ['active', 'dormant', 'inactive'];
@@ -154,9 +154,9 @@ router.patch('/:memberId/status', async (req, res) => {
     const result = await pool.query(`
       UPDATE members
       SET status = $1, manually_set_status = TRUE, updated_at = NOW()
-      WHERE member_id = $2
+      WHERE member_id = $2 AND church_id = $3
       RETURNING *
-    `, [status, req.params.memberId]);
+    `, [status, req.params.memberId, req.user.church_id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Member not found.' });
@@ -172,7 +172,7 @@ router.patch('/:memberId/status', async (req, res) => {
 router.get('/:memberId/transactions', async (req, res) => {
   try {
     const memberRes = await pool.query(
-      'SELECT id FROM members WHERE member_id = $1', [req.params.memberId]
+      'SELECT id FROM members WHERE member_id = $1 AND church_id = $2', [req.params.memberId, req.user.church_id]
     );
     if (memberRes.rows.length === 0) {
       return res.status(404).json({ error: 'Member not found.' });
@@ -181,9 +181,9 @@ router.get('/:memberId/transactions', async (req, res) => {
       SELECT t.*, p.name AS project_name
       FROM transactions t
       LEFT JOIN projects p ON p.id = t.project_id
-      WHERE t.member_id = $1
+      WHERE t.member_id = $1 AND t.church_id = $2
       ORDER BY t.transaction_date DESC, t.created_at DESC
-    `, [memberRes.rows[0].id]);
+    `, [memberRes.rows[0].id, req.user.church_id]);
     res.json(result.rows);
   } catch (err) {
     console.error('Get member transactions error:', err);

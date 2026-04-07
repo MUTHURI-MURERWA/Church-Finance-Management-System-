@@ -1249,6 +1249,8 @@
       <p class="login-role">Finance Secretary Access Only</p>
       <div id="login-error" class="login-error"></div>
       <div id="login-form">
+        <div class="form-group"><label class="form-label">Church Code</label><input class="form-input" id="church-code-input"
+            type="text" placeholder="e.g. CFMS-01 or ADMIN" /></div>
         <div class="form-group"><label class="form-label">Password</label><input class="form-input" id="pwd-input"
             type="password" placeholder="Enter your password" /></div>
         <label class="check-row"><input type="checkbox" id="save-pwd-cb" /> Remember password on this device</label>
@@ -1403,25 +1405,40 @@
     let detailContext = {}, currentReceiptTxn = null, newMemberGroups = [], memberLookupCache = {};
     document.getElementById('pwd-input').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
     const _sp = localStorage.getItem('cfms_saved_pwd');
+    const _sc = localStorage.getItem('cfms_saved_code');
     if (_sp) { document.getElementById('pwd-input').value = _sp; document.getElementById('save-pwd-cb').checked = true; }
+    if (_sc) { document.getElementById('church-code-input').value = _sc; }
     async function doLogin() {
+      const code = document.getElementById('church-code-input').value.trim();
       const pwd = document.getElementById('pwd-input').value.trim();
       const errEl = document.getElementById('login-error'); errEl.style.display = 'none';
+      if (!code) { errEl.textContent = 'Enter Church Code.'; errEl.style.display = 'block'; return; }
       if (!pwd) { errEl.textContent = 'Enter your password.'; errEl.style.display = 'block'; return; }
       const btn = document.getElementById('login-btn'); btn.disabled = true; btn.textContent = 'Logging in…';
       try {
-        const data = await POST('/auth/login', { password: pwd });
+        const data = await POST('/auth/login', { churchCode: code, password: pwd });
         authToken = data.token; localStorage.setItem('cfms_token', authToken);
-        if (document.getElementById('save-pwd-cb').checked) localStorage.setItem('cfms_saved_pwd', pwd);
-        else localStorage.removeItem('cfms_saved_pwd');
-        document.getElementById('login-hint').textContent = '';
-        document.getElementById('login-page').style.display = 'none';
-        document.getElementById('app').classList.add('visible');
-        await render('overview');
-        toast('Welcome, Finance Secretary!');
-        if (data.isDefaultPassword) setTimeout(() => openChangePwdModal(true), 700);
+        if (data.role === 'superadmin') {
+           localStorage.setItem('cfms_role', 'superadmin');
+           document.getElementById('login-page').style.display = 'none';
+           document.getElementById('app').classList.add('visible');
+           document.getElementById('sidebar').innerHTML = '<div style="height:12px;"></div><div class="side-section-title">Super Admin</div><div class="side-item active" data-section="superadmin" onclick="nav(this)"><span class="icon">🏢</span><span class="side-label">Manage Churches</span></div>';
+           document.querySelector('.header-user').textContent = '👤 Super Admin';
+           navTo('superadmin');
+           toast('Welcome, Super Admin!');
+        } else {
+           localStorage.setItem('cfms_role', 'admin');
+           if (document.getElementById('save-pwd-cb').checked) { localStorage.setItem('cfms_saved_pwd', pwd); localStorage.setItem('cfms_saved_code', code); }
+           else { localStorage.removeItem('cfms_saved_pwd'); localStorage.removeItem('cfms_saved_code'); }
+           document.getElementById('login-hint').textContent = '';
+           document.getElementById('login-page').style.display = 'none';
+           document.getElementById('app').classList.add('visible');
+           await render('overview');
+           toast('Welcome, Finance Secretary!');
+           if (data.isDefaultPassword) setTimeout(() => openChangePwdModal(true), 700);
+        }
       } catch (err) { errEl.textContent = err.message; errEl.style.display = 'block'; document.getElementById('pwd-input').value = ''; }
-      finally { btn.disabled = false; btn.textContent = 'Login as Finance Secretary'; }
+      finally { btn.disabled = false; btn.textContent = 'Login'; }
     }
     function showForgot() { document.getElementById('login-form').style.display = 'none'; document.getElementById('forgot-form').style.display = 'block'; }
     function hideForgot() { document.getElementById('forgot-form').style.display = 'none'; document.getElementById('login-form').style.display = 'block'; }
@@ -1476,6 +1493,7 @@ function navTo(section){document.querySelectorAll('.side-item').forEach(i=>{if(i
           case 'projects': div.innerHTML = await buildProjects(); break;
           case 'reports': div.innerHTML = await buildReports(); break;
           case 'changepwd': div.innerHTML = buildChangePwdSection(); break;
+          case 'superadmin': div.innerHTML = await buildSuperadmin(); break;
           default: div.innerHTML = await buildOverview();
         }
         c.innerHTML = ''; c.appendChild(div);
@@ -1751,6 +1769,69 @@ function navTo(section){document.querySelectorAll('.side-item').forEach(i=>{if(i
       document.getElementById('login-page').style.display = 'none';
       document.getElementById('app').classList.add('visible');
       render('overview');
+    }
+    async function buildSuperadmin() {
+      const churches = await GET('/superadmin/churches');
+      const rows = churches.map(c => `
+        <tr>
+          <td><span class="badge badge-gold">${c.code}</span></td>
+          <td>${c.name}</td>
+          <td>${c.member_count}</td>
+          <td>${c.transaction_count}</td>
+          <td>${new Date(c.created_at).toLocaleDateString()}</td>
+          <td><button class="btn-sm" style="background:var(--red);color:white;border:none;" onclick="resetChurchPwd(${c.id}, '${c.name.replace(/'/g, "\\'")}')">Reset Pwd</button></td>
+        </tr>
+      `).join('');
+      return `
+        <div class="page-title">🏢 Super Admin Dashboard</div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">➕ Create New Church</div>
+            <div class="field"><label>Church Code</label><input class="fi" id="new-church-code" placeholder="e.g. CFMS-01" /></div>
+            <div class="field"><label>Church Name</label><input class="fi" id="new-church-name" placeholder="e.g. Nairobi Central" /></div>
+            <button class="btn-primary" onclick="createChurch()">Create Church</button>
+          </div>
+          <div class="card">
+            <div class="card-title">ℹ️ Information</div>
+            <p style="font-size:13px;color:var(--text-dim);line-height:1.6">
+              This dashboard is for managing multiple church tenants.<br/><br/>
+              When you create a church, it will generate a default <b>finance_secretary</b> account for that church, and it will return a randomly generated default password.<br/><br/>
+              If a church forgets its password, you can reset it using the "Reset Pwd" button.
+            </p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">🏢 Registered Churches</div>
+          ${churches.length ? `
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Code</th><th>Name</th><th>Members</th><th>Txns</th><th>Created</th><th>Action</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+          ` : '<div style="color:var(--text-dim);font-size:13px;">No churches found.</div>'}
+        </div>
+      `;
+    }
+
+    async function createChurch() {
+      const code = v('new-church-code'), name = v('new-church-name');
+      if (!code || !name) return toast('Code and Name are required.', 'error');
+      try {
+        const res = await POST('/superadmin/churches', { code, name });
+        alert(`Church Created!\n\nName: ${res.church.name}\nCode: ${res.church.code}\n\nDefault Username: finance_secretary\nDefault Password: ${res.defaultPassword}\n\nPlease share this configuration securely.`);
+        toast('Church created.');
+        render('superadmin');
+      } catch (e) { toast(e.message, 'error'); }
+    }
+
+    async function resetChurchPwd(id, name) {
+      if (!confirm(`Are you sure you want to reset the admin password for ${name}?`)) return;
+      try {
+        const res = await POST(`/superadmin/churches/${id}/reset-password`, {});
+        alert(`Password Reset!\n\nChurch: ${name}\n\nNew Default Password: ${res.defaultPassword}\n\nPlease share this configuration securely.`);
+        toast('Password reset.');
+      } catch (e) { toast(e.message, 'error'); }
     }
   </script>
 </body>

@@ -22,9 +22,10 @@ router.get('/villages', async (req, res) => {
       FROM villages v
       LEFT JOIN members m ON m.village_id = v.id
       LEFT JOIN transactions t ON t.member_id = m.id
+      WHERE v.church_id = $1
       GROUP BY v.id, v.name
       ORDER BY total_contributions DESC
-    `);
+    `, [req.user.church_id]);
         res.json(result.rows);
     } catch (err) {
         console.error('Village analytics error:', err);
@@ -45,10 +46,10 @@ router.get('/villages/:id/members', async (req, res) => {
         COUNT(t.id)::int AS transaction_count
       FROM members m
       LEFT JOIN transactions t ON t.member_id = m.id
-      WHERE m.village_id = $1
+      WHERE m.village_id = $1 AND m.church_id = $2
       GROUP BY m.id
       ORDER BY total_contributions DESC
-    `, [req.params.id]);
+    `, [req.params.id, req.user.church_id]);
         res.json(result.rows);
     } catch (err) {
         console.error('Village members analytics error:', err);
@@ -72,9 +73,10 @@ router.get('/groups', async (req, res) => {
       FROM groups g
       LEFT JOIN member_groups mg ON mg.group_id = g.id
       LEFT JOIN transactions t ON t.member_id = mg.member_id
+      WHERE g.church_id = $1
       GROUP BY g.id, g.name
       ORDER BY total_contributions DESC
-    `);
+    `, [req.user.church_id]);
         res.json(result.rows);
     } catch (err) {
         console.error('Group analytics error:', err);
@@ -97,10 +99,10 @@ router.get('/groups/:id/members', async (req, res) => {
       JOIN members m ON m.id = mg.member_id
       LEFT JOIN villages v ON v.id = m.village_id
       LEFT JOIN transactions t ON t.member_id = m.id
-      WHERE mg.group_id = $1
+      WHERE mg.group_id = $1 AND m.church_id = $2
       GROUP BY m.id, v.name
       ORDER BY total_contributions DESC
-    `, [req.params.id]);
+    `, [req.params.id, req.user.church_id]);
         res.json(result.rows);
     } catch (err) {
         console.error('Group members analytics error:', err);
@@ -110,6 +112,7 @@ router.get('/groups/:id/members', async (req, res) => {
 
 router.get('/dashboard', async (req, res) => {
     try {
+        const cid = req.user.church_id;
         const [overview, villages, groups, lastSunday, sundayTotals, memberStatus] = await Promise.all([
             pool.query(`
         SELECT
@@ -119,8 +122,8 @@ router.get('/dashboard', async (req, res) => {
           COALESCE(SUM(amount) FILTER (WHERE transaction_type = 'Welfare/Harambee'), 0)     AS welfare,
           COALESCE(SUM(amount) FILTER (WHERE transaction_type = 'Project Contribution'), 0) AS projects,
           COALESCE(SUM(amount) FILTER (WHERE transaction_type = 'Expense'), 0)              AS expenses
-        FROM transactions
-      `),
+        FROM transactions WHERE church_id = $1
+      `, [cid]),
             pool.query(`
         SELECT v.id, v.name AS village,
           COUNT(DISTINCT m.id)::int AS member_count,
@@ -128,9 +131,10 @@ router.get('/dashboard', async (req, res) => {
         FROM villages v
         LEFT JOIN members m ON m.village_id = v.id
         LEFT JOIN transactions t ON t.member_id = m.id
+        WHERE v.church_id = $1
         GROUP BY v.id, v.name
         ORDER BY total_contributions DESC
-      `),
+      `, [cid]),
             pool.query(`
         SELECT g.id, g.name AS group_name,
           COUNT(DISTINCT mg.member_id)::int AS member_count,
@@ -138,23 +142,24 @@ router.get('/dashboard', async (req, res) => {
         FROM groups g
         LEFT JOIN member_groups mg ON mg.group_id = g.id
         LEFT JOIN transactions t ON t.member_id = mg.member_id
+        WHERE g.church_id = $1
         GROUP BY g.id, g.name
         ORDER BY total_contributions DESC
-      `),
-            pool.query(`SELECT * FROM sunday_collections ORDER BY service_date DESC LIMIT 1`),
+      `, [cid]),
+            pool.query(`SELECT * FROM sunday_collections WHERE church_id = $1 ORDER BY service_date DESC LIMIT 1`, [cid]),
             pool.query(`
         SELECT
           COALESCE(SUM(offering_amount), 0) AS total_offering,
           COALESCE(SUM(tithing_amount),  0) AS total_tithing
-        FROM sunday_collections
-      `),
+        FROM sunday_collections WHERE church_id = $1
+      `, [cid]),
             pool.query(`
         SELECT
           COUNT(*)::int AS total,
           COUNT(*) FILTER (WHERE status = 'active')::int  AS active,
           COUNT(*) FILTER (WHERE status = 'dormant')::int AS dormant
-        FROM members
-      `)
+        FROM members WHERE church_id = $1
+      `, [cid])
         ]);
 
         res.json({

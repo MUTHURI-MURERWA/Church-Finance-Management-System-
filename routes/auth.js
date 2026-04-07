@@ -1,8 +1,4 @@
 // routes/auth.js — Login & password management
-/*import express framework , create a router to define authentication routes
-import bcrypt for  password hashing and comparison, jsonwebtoken to create
-authentication tokens, postgreSQL connection to pool and authentication middleware
-to protect routes */
 const express = require('express');
 const router  = express.Router();
 const bcrypt  = require('bcrypt');
@@ -11,54 +7,64 @@ const pool    = require('../db');
 const auth    = require('../middleware/auth');
 
 // ── POST /api/auth/login ──────────────────────────────────
-// Body: { password } used for logging into the system
+// Body: { churchCode, password }
 router.post('/login', async (req, res) => {
-  const { password } = req.body;// extract password from request body
+  const { churchCode, password } = req.body;
   if (!password) {
     return res.status(400).json({ error: 'Password is required.' });
   }
 
-  try {// fetch the first user from the database
-    const result = await pool.query('SELECT * FROM users LIMIT 1');
-    if (result.rows.length === 0) { // if no user exists in the databse
-      return res.status(500).json({ error: 'No user account found. Please seed the database.' });
+  try {
+    let user;
+    let churchId = null;
+
+    if (churchCode === 'ADMIN') {
+      // Super Admin Login
+      const result = await pool.query("SELECT * FROM users WHERE role = 'superadmin' LIMIT 1");
+      if (result.rows.length === 0) return res.status(401).json({ error: 'Admin account not found.' });
+      user = result.rows[0];
+    } else {
+      // Church Login
+      if (!churchCode) return res.status(400).json({ error: 'Church Code is required.' });
+      const churchRes = await pool.query('SELECT * FROM churches WHERE code = $1', [churchCode]);
+      if (churchRes.rows.length === 0) return res.status(401).json({ error: 'Invalid Church Code.' });
+      
+      churchId = churchRes.rows[0].id;
+      const result = await pool.query('SELECT * FROM users WHERE church_id = $1 LIMIT 1', [churchId]);
+      if (result.rows.length === 0) return res.status(401).json({ error: 'No user account found for this church.' });
+      user = result.rows[0];
     }
 
-    // get user record and compare entered password with stored hashed password
-    const user = result.rows[0];
     const match = await bcrypt.compare(password, user.password_hash);
-
     if (!match) {
-      return res.status(401).json({ error: 'Incorrect password.' });// if no match
+      return res.status(401).json({ error: 'Incorrect password.' });
     }
 
-    // Sign JWT — expires in 8 hours (a full working day)
+    // Sign JWT
     const token = jwt.sign(
-      { id: user.id, username: user.username },
+      { id: user.id, username: user.username, role: user.role, church_id: user.church_id },
       process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
 
-    // send token and user info back to frontend
     res.json({
       token,
       isDefaultPassword: user.is_default_password,
       username: user.username,
+      role: user.role,
+      churchCode: churchCode
     });
   } catch (err) {
-    // log server error
     console.error('Login error:', err);
     res.status(500).json({ error: 'Server error during login.' });
   }
 });
 
 // ── POST /api/auth/change-password ───────────────────────
-// Body: { currentPassword, newPassword }
-// Requires: Bearer token
 router.post('/change-password', auth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
-  if (!currentPassword || !newPassword) {// validate both passwords are provided
+  if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Both current and new password are required.' });
   }
   if (newPassword.length < 6) {
@@ -74,7 +80,6 @@ router.post('/change-password', auth, async (req, res) => {
       return res.status(401).json({ error: 'Current password is incorrect.' });
     }
 
-    // hash new password
     const newHash = await bcrypt.hash(newPassword, 10);
     await pool.query(
       'UPDATE users SET password_hash = $1, is_default_password = FALSE, updated_at = NOW() WHERE id = $2',

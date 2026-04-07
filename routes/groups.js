@@ -18,9 +18,10 @@ router.get('/', async (req, res) => {
         COUNT(mg.member_id)::int AS member_count
       FROM groups g
       LEFT JOIN member_groups mg ON mg.group_id = g.id
+      WHERE g.church_id = $1
       GROUP BY g.id
       ORDER BY g.name ASC
-    `);
+    `, [req.user.church_id]);
     res.json(result.rows);
   } catch (err) {
     console.error('Get groups error:', err);
@@ -42,9 +43,9 @@ router.get('/:id/members', async (req, res) => {
       FROM member_groups mg
       JOIN members m ON m.id = mg.member_id
       LEFT JOIN villages v ON v.id = m.village_id
-      WHERE mg.group_id = $1
+      WHERE mg.group_id = $1 AND m.church_id = $2
       ORDER BY m.member_id ASC
-    `, [req.params.id]);
+    `, [req.params.id, req.user.church_id]);
     res.json(result.rows);
   } catch (err) {
     console.error('Get group members error:', err);
@@ -61,8 +62,8 @@ router.post('/', async (req, res) => {
   }
   try {
     const result = await pool.query(
-      'INSERT INTO groups (name, description) VALUES ($1, $2) RETURNING *',
-      [name.trim(), description?.trim() || null]
+      'INSERT INTO groups (name, description, church_id) VALUES ($1, $2, $3) RETURNING *',
+      [name.trim(), description?.trim() || null, req.user.church_id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {

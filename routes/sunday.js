@@ -10,7 +10,8 @@ router.use(auth);
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM sunday_collections ORDER BY service_date DESC'
+      'SELECT * FROM sunday_collections WHERE church_id = $1 ORDER BY service_date DESC',
+      [req.user.church_id]
     );
     res.json(result.rows);
   } catch (err) {
@@ -24,7 +25,8 @@ router.get('/', async (req, res) => {
 router.get('/last', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM sunday_collections ORDER BY service_date DESC LIMIT 1'
+      'SELECT * FROM sunday_collections WHERE church_id = $1 ORDER BY service_date DESC LIMIT 1',
+      [req.user.church_id]
     );
     res.json(result.rows[0] || null);
   } catch (err) {
@@ -41,7 +43,8 @@ router.get('/totals', async (req, res) => {
         COALESCE(SUM(offering_amount), 0) AS total_offering,
         COALESCE(SUM(tithing_amount),  0) AS total_tithing
       FROM sunday_collections
-    `);
+      WHERE church_id = $1
+    `, [req.user.church_id]);
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Get sunday totals error:', err);
@@ -63,9 +66,9 @@ router.post('/', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `INSERT INTO sunday_collections (service_date, offering_amount, tithing_amount, notes)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [serviceDate, Number(offering) || 0, Number(tithing) || 0, notes?.trim() || null]
+      `INSERT INTO sunday_collections (service_date, offering_amount, tithing_amount, notes, church_id)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [serviceDate, Number(offering) || 0, Number(tithing) || 0, notes?.trim() || null, req.user.church_id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {

@@ -18,6 +18,7 @@ app.use('/api/sunday', require('./routes/sunday'));
 app.use('/api/projects', require('./routes/projects'));
 app.use('/api/villages', require('./routes/villages'));
 app.use('/api/analytics', require('./routes/analytics'));
+app.use('/api/superadmin', require('./routes/superadmin'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });

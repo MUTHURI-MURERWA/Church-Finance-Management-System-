@@ -15,15 +15,18 @@ router.get('/', async (req, res) => {
       FROM transactions t
       LEFT JOIN members m ON m.id = t.member_id
       LEFT JOIN villages v ON v.id = m.village_id
+      WHERE t.church_id = $1
     `;
-    let params = [];
+    let params = [req.user.church_id];
+    let paramIndex = 2;
     if (typeObj) {
-      query += ` WHERE t.transaction_type = $1`;
+      query += ` AND t.transaction_type = $${paramIndex}`;
       params.push(typeObj);
+      paramIndex++;
     }
     query += ` ORDER BY t.transaction_date DESC, t.id DESC`;
     if (req.query.limit) {
-      query += ` LIMIT $${params.length + 1}`;
+      query += ` LIMIT $${paramIndex}`;
       params.push(req.query.limit);
     }
     const result = await pool.query(query, params);
@@ -43,10 +46,11 @@ router.get('/summary/monthly', async (req, res) => {
         COALESCE(SUM(amount) FILTER (WHERE transaction_type != 'Expense'), 0) AS income,
         COALESCE(SUM(amount) FILTER (WHERE transaction_type = 'Expense'), 0) AS expense
       FROM transactions
+      WHERE church_id = $1
       GROUP BY TO_CHAR(transaction_date, 'Mon YYYY'), DATE_TRUNC('month', transaction_date)
       ORDER BY DATE_TRUNC('month', transaction_date) DESC
       LIMIT 12
-    `);
+    `, [req.user.church_id]);
     res.json(result.rows);
   } catch (err) {
     console.error('Monthly summary error', err);
@@ -63,8 +67,8 @@ router.post('/', async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    // Generate receipt number
-    const rRes = await client.query("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM transactions");
+    // Generate receipt number per church
+    const rRes = await client.query("SELECT COALESCE(MAX(receipt_no), 0) + 1 AS next_id FROM transactions WHERE church_id = $1", [req.user.church_id]);
     const receiptNo = parseInt(rRes.rows[0].next_id, 10);
 
     let dbMemberId = null;
@@ -72,7 +76,7 @@ router.post('/', async (req, res) => {
 
     if (type !== 'Expense') {
       if (!memberId) throw new Error('Member ID is required for contributions');
-      const mRes = await client.query('SELECT id, full_name, status, manually_set_status FROM members WHERE member_id = $1', [memberId]);
+      const mRes = await client.query('SELECT id, full_name, status, manually_set_status FROM members WHERE member_id = $1 AND church_id = $2', [memberId, req.user.church_id]);
       if (mRes.rows.length === 0) throw new Error('Member not found');
       
       const member = mRes.rows[0];
@@ -80,22 +84,22 @@ router.post('/', async (req, res) => {
       memberName = member.full_name;
 
       // Update last_contribution_date
-      await client.query('UPDATE members SET last_contribution_date = $1 WHERE id = $2', [date || new Date(), dbMemberId]);
+      await client.query('UPDATE members SET last_contribution_date = $1 WHERE id = $2 AND church_id = $3', [date || new Date(), dbMemberId, req.user.church_id]);
 
       // If dormant and not manually set, make active
       if (member.status === 'dormant' && !member.manually_set_status) {
-        await client.query("UPDATE members SET status = 'active' WHERE id = $1", [dbMemberId]);
+        await client.query("UPDATE members SET status = 'active' WHERE id = $1 AND church_id = $2", [dbMemberId, req.user.church_id]);
       }
       
       // If project contribution, update project collected
       if (type === 'Project Contribution' && projectId) {
-        await client.query('UPDATE projects SET collected = COALESCE(collected, 0) + $1 WHERE id = $2', [amount, projectId]);
+        await client.query('UPDATE projects SET collected = COALESCE(collected, 0) + $1 WHERE id = $2 AND church_id = $3', [amount, projectId, req.user.church_id]);
       }
     }
 
     const insQuery = `
-      INSERT INTO transactions (receipt_no, member_id, transaction_type, amount, transaction_date, description, project_id, category)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
+      INSERT INTO transactions (receipt_no, member_id, transaction_type, amount, transaction_date, description, project_id, category, church_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *
     `;
     const insVars = [
       receiptNo, 
@@ -105,7 +109,8 @@ router.post('/', async (req, res) => {
       date || new Date(), 
       description || null, 
       projectId || null,
-      category || null
+      category || null,
+      req.user.church_id
     ];
     
     const txnRes = await client.query(insQuery, insVars);

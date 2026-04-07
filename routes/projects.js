@@ -17,9 +17,10 @@ router.get('/', async (req, res) => {
       FROM projects p
       LEFT JOIN transactions t
         ON t.project_id = p.id AND t.transaction_type = 'Project Contribution'
+      WHERE p.church_id = $1
       GROUP BY p.id
       ORDER BY p.start_date DESC
-    `);
+    `, [req.user.church_id]);
     res.json(result.rows);
   } catch (err) {
     console.error('Get projects error:', err);
@@ -36,9 +37,9 @@ router.post('/', async (req, res) => {
   }
   try {
     const result = await pool.query(
-      `INSERT INTO projects (name, target_amount, description, start_date)
-       VALUES ($1, $2, $3, CURRENT_DATE) RETURNING *`,
-      [name.trim(), Number(targetAmount) || 0, description?.trim() || null]
+      `INSERT INTO projects (name, target_amount, description, start_date, church_id)
+       VALUES ($1, $2, $3, CURRENT_DATE, $4) RETURNING *`,
+      [name.trim(), Number(targetAmount) || 0, description?.trim() || null, req.user.church_id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
