@@ -1382,6 +1382,7 @@
   <script>
     const API_BASE = '/api';
     let authToken = localStorage.getItem('cfms_token') || null;
+    const defaultSidebarHTML = document.getElementById('sidebar').innerHTML;
     async function api(method, path, body = null) {
       const opts = { method, headers: { 'Content-Type': 'application/json' } };
       if (authToken) opts.headers['Authorization'] = 'Bearer ' + authToken;
@@ -1428,6 +1429,8 @@
            toast('Welcome, Super Admin!');
         } else {
            localStorage.setItem('cfms_role', 'admin');
+           document.getElementById('sidebar').innerHTML = defaultSidebarHTML;
+           document.querySelector('.header-user').textContent = '👤 Finance Secretary';
            if (document.getElementById('save-pwd-cb').checked) { localStorage.setItem('cfms_saved_pwd', pwd); localStorage.setItem('cfms_saved_code', code); }
            else { localStorage.removeItem('cfms_saved_pwd'); localStorage.removeItem('cfms_saved_code'); }
            document.getElementById('login-hint').textContent = '';
@@ -1768,7 +1771,16 @@ function navTo(section){document.querySelectorAll('.side-item').forEach(i=>{if(i
     if (authToken) {
       document.getElementById('login-page').style.display = 'none';
       document.getElementById('app').classList.add('visible');
-      render('overview');
+      const role = localStorage.getItem('cfms_role');
+      if (role === 'superadmin') {
+        document.getElementById('sidebar').innerHTML = '<div style="height:12px;"></div><div class="side-section-title">Super Admin</div><div class="side-item active" data-section="superadmin" onclick="nav(this)"><span class="icon">🏢</span><span class="side-label">Manage Churches</span></div>';
+        document.querySelector('.header-user').textContent = '👤 Super Admin';
+        render('superadmin');
+      } else {
+        document.getElementById('sidebar').innerHTML = defaultSidebarHTML;
+        document.querySelector('.header-user').textContent = '👤 Finance Secretary';
+        render('overview');
+      }
     }
     async function buildSuperadmin() {
       const churches = await GET('/superadmin/churches');
