@@ -91,11 +91,7 @@ router.post('/', async (req, res) => {
         await client.query("UPDATE members SET status = 'active' WHERE id = $1 AND church_id = $2", [dbMemberId, req.user.church_id]);
       }
       
-      // If project contribution, update project collected
-      if (type === 'Project Contribution' && projectId) {
-        await client.query('UPDATE projects SET collected = COALESCE(collected, 0) + $1 WHERE id = $2 AND church_id = $3', [amount, projectId, req.user.church_id]);
-      }
-    }
+      // Project contribution does not update projects table directly anymore; collected sum is calculated dynamically    }
 
     const insQuery = `
       INSERT INTO transactions (receipt_no, member_id, transaction_type, amount, transaction_date, description, project_id, category, church_id)

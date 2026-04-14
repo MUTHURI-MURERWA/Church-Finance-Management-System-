@@ -93,4 +93,45 @@ router.post('/change-password', auth, async (req, res) => {
   }
 });
 
+// ── POST /api/auth/forgot-password ────────────────────────
+// Body: { churchCode, masterKey }
+router.post('/forgot-password', async (req, res) => {
+  const { churchCode, masterKey } = req.body;
+  if (!churchCode || !masterKey) {
+    return res.status(400).json({ error: 'Church code and master key are required.' });
+  }
+  // Hardcoded or env-based master key validation
+  if (masterKey !== (process.env.MASTER_RESET_KEY || 'CFMS2024')) {
+    return res.status(401).json({ error: 'Invalid master reset key.' });
+  }
+
+  try {
+    const churchRes = await pool.query('SELECT id, name FROM churches WHERE code = $1', [churchCode]);
+    if (churchRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Church not found.' });
+    }
+
+    const churchId = churchRes.rows[0].id;
+    
+    // Generate a new temporary default password
+    const defaultPassword = 'admin' + Math.floor(100 + Math.random() * 900);
+    const hash = await bcrypt.hash(defaultPassword, 10);
+
+    const updateRes = await pool.query(`
+      UPDATE users SET password_hash = $1, is_default_password = TRUE
+      WHERE church_id = $2 AND role = 'admin' AND username = 'finance_secretary'
+      RETURNING id
+    `, [hash, churchId]);
+
+    if (updateRes.rows.length === 0) {
+      return res.status(404).json({ error: 'No admin user found for this church.' });
+    }
+
+    res.json({ message: 'Password has been reset.', newPassword: defaultPassword });
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    res.status(500).json({ error: 'Failed to reset password.' });
+  }
+});
+
 module.exports = router;

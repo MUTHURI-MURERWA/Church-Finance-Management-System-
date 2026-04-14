@@ -1423,7 +1423,7 @@
            localStorage.setItem('cfms_role', 'superadmin');
            document.getElementById('login-page').style.display = 'none';
            document.getElementById('app').classList.add('visible');
-           document.getElementById('sidebar').innerHTML = '<div style="height:12px;"></div><div class="side-section-title">Super Admin</div><div class="side-item active" data-section="superadmin" onclick="nav(this)"><span class="icon">🏢</span><span class="side-label">Manage Churches</span></div>';
+           document.getElementById('sidebar').innerHTML = '<div style="height:12px;"></div><div class="side-section-title">Super Admin</div><div class="side-item active" data-section="superadmin" onclick="nav(this)"><span class="icon">🏢</span><span class="side-label">Manage Churches</span></div><div class="side-divider"></div><div class="side-section-title">Settings</div><div class="side-item" data-section="changepwd" onclick="nav(this)"><span class="icon">🔐</span><span class="side-label">Change Password</span></div>';
            document.querySelector('.header-user').textContent = '👤 Super Admin';
            navTo('superadmin');
            toast('Welcome, Super Admin!');
@@ -1445,7 +1445,21 @@
     }
     function showForgot() { document.getElementById('login-form').style.display = 'none'; document.getElementById('forgot-form').style.display = 'block'; }
     function hideForgot() { document.getElementById('forgot-form').style.display = 'none'; document.getElementById('login-form').style.display = 'block'; }
-    function doReset() { if (document.getElementById('reset-key-input').value === 'CFMS2024') { toast('Contact your system administrator to reset your password.'); hideForgot(); } else toast('Invalid master key', 'error'); }
+    async function doReset() { 
+      const code = v('church-code-input').trim(); 
+      const key = v('reset-key-input').trim(); 
+      if (!code) return toast('Please enter your Church Code first', 'error'); 
+      if (!key) return toast('Please enter Master Reset Key', 'error'); 
+      try { 
+        const res = await POST('/auth/forgot-password', { churchCode: code, masterKey: key }); 
+        alert(`Password Reset Successful!\n\nYour new temporary password is:\n${res.newPassword}\n\nPlease login and change it immediately.`); 
+        hideForgot(); 
+        document.getElementById('reset-key-input').value = ''; 
+        document.getElementById('pwd-input').value = res.newPassword; 
+      } catch (err) { 
+        toast(err.message || 'Invalid request', 'error'); 
+      } 
+    }
     function logout() { authToken = null; localStorage.removeItem('cfms_token'); document.getElementById('login-page').style.display = 'flex'; document.getElementById('app').classList.remove('visible'); document.getElementById('pwd-input').value = ''; document.getElementById('login-error').style.display = 'none'; }
     function openChangePwdModal(first = false) {
       document.getElementById('chpwd-subtitle').innerHTML = first ? 'You are using the <b style="color:var(--red)">default password</b>.<br/>Please create a new secure password.' : 'Enter your current password and choose a new one.';
@@ -1773,7 +1787,7 @@ function navTo(section){document.querySelectorAll('.side-item').forEach(i=>{if(i
       document.getElementById('app').classList.add('visible');
       const role = localStorage.getItem('cfms_role');
       if (role === 'superadmin') {
-        document.getElementById('sidebar').innerHTML = '<div style="height:12px;"></div><div class="side-section-title">Super Admin</div><div class="side-item active" data-section="superadmin" onclick="nav(this)"><span class="icon">🏢</span><span class="side-label">Manage Churches</span></div>';
+        document.getElementById('sidebar').innerHTML = '<div style="height:12px;"></div><div class="side-section-title">Super Admin</div><div class="side-item active" data-section="superadmin" onclick="nav(this)"><span class="icon">🏢</span><span class="side-label">Manage Churches</span></div><div class="side-divider"></div><div class="side-section-title">Settings</div><div class="side-item" data-section="changepwd" onclick="nav(this)"><span class="icon">🔐</span><span class="side-label">Change Password</span></div>';
         document.querySelector('.header-user').textContent = '👤 Super Admin';
         render('superadmin');
       } else {
