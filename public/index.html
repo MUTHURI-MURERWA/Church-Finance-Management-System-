@@ -1443,23 +1443,7 @@
       } catch (err) { errEl.textContent = err.message; errEl.style.display = 'block'; document.getElementById('pwd-input').value = ''; }
       finally { btn.disabled = false; btn.textContent = 'Login'; }
     }
-    function showForgot() { document.getElementById('login-form').style.display = 'none'; document.getElementById('forgot-form').style.display = 'block'; }
-    function hideForgot() { document.getElementById('forgot-form').style.display = 'none'; document.getElementById('login-form').style.display = 'block'; }
-    async function doReset() { 
-      const code = v('church-code-input').trim(); 
-      const key = v('reset-key-input').trim(); 
-      if (!code) return toast('Please enter your Church Code first', 'error'); 
-      if (!key) return toast('Please enter Master Reset Key', 'error'); 
-      try { 
-        const res = await POST('/auth/forgot-password', { churchCode: code, masterKey: key }); 
-        alert(`Password Reset Successful!\n\nYour new temporary password is:\n${res.newPassword}\n\nPlease login and change it immediately.`); 
-        hideForgot(); 
-        document.getElementById('reset-key-input').value = ''; 
-        document.getElementById('pwd-input').value = res.newPassword; 
-      } catch (err) { 
-        toast(err.message || 'Invalid request', 'error'); 
-      } 
-    }
+    function showForgot() { toast('Contact ADMIN for password resetting', 'error'); }
     function logout() { authToken = null; localStorage.removeItem('cfms_token'); document.getElementById('login-page').style.display = 'flex'; document.getElementById('app').classList.remove('visible'); document.getElementById('pwd-input').value = ''; document.getElementById('login-error').style.display = 'none'; }
     function openChangePwdModal(first = false) {
       document.getElementById('chpwd-subtitle').innerHTML = first ? 'You are using the <b style="color:var(--red)">default password</b>.<br/>Please create a new secure password.' : 'Enter your current password and choose a new one.';
@@ -1686,20 +1670,21 @@ function navTo(section){document.querySelectorAll('.side-item').forEach(i=>{if(i
       w.document.close(); w.focus(); w.print(); closeModal();
     }
     async function buildMembers() {
+      newMemberGroups = []; // Reset on load
       const [mems, grps, vills] = await Promise.all([GET('/members'), GET('/groups'), GET('/villages')]);
       members = mems; groups = grps; villages = vills;
-      const tags = grps.map(g => `<span class="tag" onclick="toggleNewMemberGroup(this,'${g.name.replace(/'/g, "\\'")}')"> ${g.name}</span>`).join('');
+      const groupCheckboxes = grps.map(g => `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);cursor:pointer;"><input type="checkbox" value="${g.name.replace(/"/g, '&quot;')}" class="nm-group-cb" style="accent-color:var(--gold);"/> ${g.name}</label>`).join('');
       const rows = mems.map(m => `<tr><td><span class="badge badge-gold">${m.member_id}</span></td><td>${m.full_name}<br><span style="color:var(--text-dim);font-size:11px;">${m.phone || 'No phone'}</span></td><td>${m.village || '—'}</td><td>${(m.groups || []).map(g => `<span class="badge badge-blue" style="margin:1px;">${g}</span>`).join(' ') || '—'}</td><td>${statusBadge(m.status)}</td><td>${fdate(m.last_contribution_date)}</td><td><button class="btn-blue" onclick="viewMember('${m.member_id}')">View</button></td></tr>`).join('');
       const activeCount = mems.filter(m => m.status === 'active').length;
       const dormantCount = mems.filter(m => m.status === 'dormant').length;
-      return `<div class="page-title">👥 Members</div><div class="grid-3" style="margin-bottom:18px;">${sc('👥', 'Total Members', mems.length, 'var(--blue)')}${sc('✅', 'Active', activeCount, 'var(--green)')}${sc('🔶', 'Dormant', dormantCount, 'var(--orange)')}</div><div class="info-box warn">🔶 Members with no contribution in the last 6 months are automatically marked <b>Dormant</b>. Finance Secretary can override from member detail page.</div><div class="grid-2"><div class="card"><div class="card-title">➕ Register New Member</div><div class="field"><label>Full Name *</label><input class="fi" id="nm-name" placeholder="Full name…"/></div><div class="field"><label>Village * <span style="color:var(--red);">●</span></label><input class="fi" id="nm-village" placeholder="Type village name…" list="village-list"/><datalist id="village-list">${vills.map(vl => `<option value="${vl.name}"/>`).join('')}</datalist></div><div class="field"><label>Phone Number (optional)</label><input class="fi" id="nm-phone" placeholder="+254…"/></div><div class="field"><label>Assign to Groups (click to select)</label><div class="tag-wrap" id="nm-groups">${tags}</div></div><button class="btn-primary" onclick="saveMember()">+ Register Member</button></div><div class="card"><div class="card-title">📋 Member List (${mems.length})</div><div class="field"><input class="fi" id="member-search" placeholder="Search by name, ID or village…" oninput="filterMembers()"/></div><div class="field" style="margin-bottom:8px;"><select class="fi" id="status-filter" onchange="filterMembers()" style="margin-bottom:0;"><option value="">All statuses</option><option value="active">Active only</option><option value="dormant">Dormant only</option><option value="inactive">Inactive only</option></select></div><div class="tbl-wrap">${mems.length ? `<table class="tbl"><thead><tr><th>ID</th><th>Name</th><th>Village</th><th>Groups</th><th>Status</th><th>Last Contribution</th><th></th></tr></thead><tbody id="member-tbody">${rows}</tbody></table>` : '<div style="color:var(--text-dim);font-size:13px;">No members yet.</div>'}</div></div></div>`;
+      return `<div class="page-title">👥 Members</div><div class="grid-3" style="margin-bottom:18px;">${sc('👥', 'Total Members', mems.length, 'var(--blue)')}${sc('✅', 'Active', activeCount, 'var(--green)')}${sc('🔶', 'Dormant', dormantCount, 'var(--orange)')}</div><div class="info-box warn">🔶 Members with no contribution in the last 6 months are automatically marked <b>Dormant</b>. Finance Secretary can override from member detail page.</div><div class="grid-2"><div class="card"><div class="card-title">➕ Register New Member</div><div class="field"><label>Full Name *</label><input class="fi" id="nm-name" placeholder="Full name…"/></div><div class="field"><label>Village * <span style="color:var(--red);">●</span></label><input class="fi" id="nm-village" placeholder="Type village name…" list="village-list"/><datalist id="village-list">${vills.map(vl => `<option value="${vl.name}"/>`).join('')}</datalist></div><div class="field"><label>Phone Number (optional)</label><input class="fi" id="nm-phone" placeholder="+254…"/></div><div class="field"><label>Assign to Groups (select all that apply)</label><div style="display:flex;flex-direction:column;gap:8px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;max-height:150px;overflow-y:auto;" id="nm-groups">${groupCheckboxes || '<span style="font-size:11px;color:var(--text-dim)">No groups available. Please create groups first.</span>'}</div></div><button class="btn-primary" onclick="saveMember()">+ Register Member</button></div><div class="card"><div class="card-title">📋 Member List (${mems.length})</div><div class="field"><input class="fi" id="member-search" placeholder="Search by name, ID or village…" oninput="filterMembers()"/></div><div class="field" style="margin-bottom:8px;"><select class="fi" id="status-filter" onchange="filterMembers()" style="margin-bottom:0;"><option value="">All statuses</option><option value="active">Active only</option><option value="dormant">Dormant only</option><option value="inactive">Inactive only</option></select></div><div class="tbl-wrap">${mems.length ? `<table class="tbl"><thead><tr><th>ID</th><th>Name</th><th>Village</th><th>Groups</th><th>Status</th><th>Last Contribution</th><th></th></tr></thead><tbody id="member-tbody">${rows}</tbody></table>` : '<div style="color:var(--text-dim);font-size:13px;">No members yet.</div>'}</div></div></div>`;
     }
-    function toggleNewMemberGroup(el, g) { if (newMemberGroups.includes(g)) { newMemberGroups = newMemberGroups.filter(x => x !== g); el.classList.remove('active'); } else { newMemberGroups.push(g); el.classList.add('active'); } }
     async function saveMember() {
       const name = v('nm-name').trim(), village = v('nm-village').trim(), phone = v('nm-phone').trim();
+      const selectedGroups = Array.from(document.querySelectorAll('.nm-group-cb:checked')).map(cb => cb.value);
       if (!name) return toast('Name is required', 'error');
       if (!village) return toast('Village is required', 'error');
-      try { const m = await POST('/members', { fullName: name, village, phone, groups: newMemberGroups }); newMemberGroups = []; toast(`Member registered! ID: ${m.member_id}`); render('members'); }
+      try { const m = await POST('/members', { fullName: name, village, phone, groups: selectedGroups }); toast(`Member registered! ID: ${m.member_id}`); render('members'); }
       catch (e) { toast(e.message, 'error'); }
     }
     function filterMembers() {
