@@ -1,23 +1,34 @@
 # ⛪ CFMS – Church Finance Management System
 
+**🚀 Live Access:** [https://church-finance-management-system.onrender.com/](https://church-finance-management-system.onrender.com/)
+
+A multi-tenant backend application for managing church finances, members, and projects.
+
+## Architecture
+
+CFMS is built with a **Multi-Tenant Architecture**, allowing a single instance to serve multiple independent churches securely.
+All church data (transactions, members, groups, projects, etc.) is strictly isolated using a `church_id` scope.
+
 ## Project Structure
 ```
 cfms-backend/
 ├── server.js              ← Express app entry point
 ├── db.js                  ← PostgreSQL connection pool
-├── seed.js                ← Database seeder (run once)
 ├── package.json
 ├── .env.example           ← Copy to .env and fill in values
 ├── middleware/
-│   └── auth.js            ← JWT token verification
+│   ├── auth.js            ← JWT token verification
+│   └── superadmin.js      ← Super Admin role middleware
 ├── routes/
-│   ├── auth.js            ← Login, change password
+│   ├── auth.js            ← Login, change password, reset password
 │   ├── members.js         ← Member CRUD + transactions
 │   ├── groups.js          ← Group CRUD + members
-│   ├── transactions.js    ← Contributions, expenses, summaries
+│   ├── transactions.js    ← Contributions, expenses
 │   ├── sunday.js          ← Sunday basket collections
 │   ├── projects.js        ← Church projects
-│   └── villages.js        ← Villages list
+│   ├── villages.js        ← Villages list
+│   ├── analytics.js       ← Overview & Monthly summaries
+│   └── superadmin.js      ← Manage churches and user passwords
 └── public/
     └── index.html         ← Complete frontend (served by Express)
 ```
@@ -55,18 +66,8 @@ In psql or pgAdmin, run:
 ```sql
 CREATE DATABASE cfms_db;
 ```
-Then run all the CREATE TABLE statements from the schema you already created.
 
-### 5. Seed the database (run ONCE)
-```bash
-node seed.js
-```
-This creates:
-- The Finance Secretary user (password: `admin123`)
-- Default church groups (Youths, Women Fellowship, etc.)
-- Sample villages
-
-### 6. Start the server
+### 5. Start the server
 ```bash
 # Development (auto-restarts on file changes)
 npm run dev
@@ -75,11 +76,33 @@ npm run dev
 npm start
 ```
 
+### 6. Initialize Database schemas and seed data
+Once the server is running, visit the setup route to initialize all tables and default data.
+Open your browser to: **http://localhost:3000/setup**
+
+This will create:
+- The multi-tenant schema with constraints.
+- A Super Admin account.
+- A Sample Church ("My Church") with a Finance Secretary account.
+- Default church groups horizontally isolated by `church_id`.
+- Sample villages logically categorized.
+
+> **⚠️ WARNING:** Delete or comment out the `/setup` route in `server.js` after initial deployment to prevent unauthorized recreation of your database.
+
 ### 7. Open the system
 Go to: **http://localhost:3000**
 
-Login with password: `admin123`
-You will be prompted to change it immediately.
+You can login with two default roles:
+
+🔑 **Super Admin:**
+*   Church Code: `ADMIN`
+*   Password: `admin123`
+
+⛪ **Finance Secretary (Sample Church):**
+*   Church Code: `CHURCH001`
+*   Password: `admin123`
+
+*(You will be prompted to change default passwords immediately after your first login).*
 
 ---
 
@@ -87,48 +110,45 @@ You will be prompted to change it immediately.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/auth/login` | Login with password |
-| POST | `/api/auth/change-password` | Change password (auth required) |
-| GET | `/api/members` | All members with groups & village |
-| GET | `/api/members/:memberId` | Single member (e.g. "001") |
+| **Auth** | | |
+| POST | `/api/auth/login` | Login with Church Code + Password |
+| POST | `/api/auth/change-password` | Initial password change or user-initiated reset |
+| POST | `/api/auth/forgot-password` | Contact super admin (secretary function) |
+| **Super Admin** | | |
+| GET | `/api/superadmin/churches` | Get list of all registered churches |
+| POST | `/api/superadmin/churches` | Register a new church + system generates a secretary login |
+| POST | `/api/superadmin/reset-password`| Reset any church's secretary password |
+| **Members** | | |
+| GET | `/api/members` | All members for the logged-in church |
+| GET | `/api/members/search?id=...`| Member Contribution Search by ID |
+| GET | `/api/members/:memberId` | Single member details |
 | POST | `/api/members` | Register new member |
-| GET | `/api/members/:memberId/transactions` | Member's transaction history |
-| GET | `/api/groups` | All groups with member count |
-| GET | `/api/groups/:id/members` | Members in a group |
-| POST | `/api/groups` | Register new group |
-| GET | `/api/transactions` | All transactions (supports ?type=&limit=) |
-| POST | `/api/transactions` | Record contribution or expense |
-| GET | `/api/transactions/summary/overview` | Total by type |
-| GET | `/api/transactions/summary/monthly` | Monthly income/expense |
-| GET | `/api/sunday` | All Sunday collections |
-| GET | `/api/sunday/last` | Most recent Sunday |
-| GET | `/api/sunday/totals` | Total Sunday offering & tithing |
-| POST | `/api/sunday` | Record Sunday collection |
-| GET | `/api/projects` | All projects with collected amount |
-| POST | `/api/projects` | Add new project |
-| GET | `/api/villages` | All villages |
-| POST | `/api/villages` | Add new village |
+| **Finance & Transactions** | | |
+| GET | `/api/transactions` | All transactions (filtered by query) |
+| POST | `/api/transactions` | Record new contribution/expense/tithe |
+| GET | `/api/analytics/summary` | Overview and total by types |
+| **Others** | | |
+| GET/POST | `/api/groups` | Manage Groups & Memberships |
+| GET/POST | `/api/projects` | Manage Building/Development Projects |
+| GET/POST | `/api/sunday` | Sunday Tithes and Offerings tracking |
 
 ---
 
 ## 🔐 Security Notes
 - Passwords are hashed with **bcrypt** (never stored in plain text)
-- All protected routes require a **JWT token** (sent as `Authorization: Bearer <token>`)
-- Tokens expire after **8 hours**
-- The frontend automatically logs out if the token is invalid or expired
+- All protected routes require a **JWT token** (sent as `Authorization: Bearer <token>`) containing the authenticated `church_id`.
+- Queries are strictly scoped to `req.user.church_id` ensuring Multi-Tenant Data Isolation.
+- Tokens expire after **8 hours**.
 
 ---
 
-## 🚀 Deploy to a Server (Optional)
-1. Copy the entire `cfms-backend` folder to your server
-2. Install Node.js on the server
-3. Run `npm install --production`
-4. Set up your `.env` with the server's PostgreSQL details
-5. Use **PM2** to keep it running:
-   ```bash
-   npm install -g pm2
-   pm2 start server.js --name cfms
-   pm2 save
-   pm2 startup
-   ```
-6. Point your domain/IP to port 3000 (or use Nginx as a reverse proxy on port 80)
+## 🚀 Deployment (Render.com)
+
+1. Connect your Github Repository to Render.
+2. Create a new **Web Service**.
+3. Set the build command to `npm install`.
+4. Set the start command to `npm start`.
+5. Add all standard Environment Variables in Render's dashboard (`DB_HOST`, `DB_PASSWORD`, `JWT_SECRET`, etc.). For database hosting, Render's PostgreSQL managed instances are recommended.
+6. Trigger manual deploy.
+
+*(Note: If migrating from previous single-tenant versions, please run the included `migration_multitenant.js` tool against your database first, or use the `/setup` endpoint for fresh deployments).*
